@@ -28,6 +28,8 @@ jobs:
         run: uv sync --locked --no-default-groups --group lint
       - name: Run hooks
         run: uv run --locked --no-default-groups --group lint prek run --all-files --show-diff-on-failure
+      - name: Validate changelog entries
+        run: uv run --locked --no-default-groups --group lint ledgr check
 
   type-check:
     name: Type Check

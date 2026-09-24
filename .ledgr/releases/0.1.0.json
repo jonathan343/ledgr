@@ -1,0 +1,49 @@
+{
+  "schema-version": 1,
+  "version": "0.1.0",
+  "date": "2026-09-24",
+  "sections": [
+    {
+      "type": "feature",
+      "heading": "Features",
+      "changes": [
+        {
+          "id": "289268736ebc",
+          "type": "feature",
+          "bump": "minor",
+          "body": "Customize change types, their version bumps, and release notes with Jinja2 templates."
+        },
+        {
+          "id": "72dbf5a0b4c7",
+          "type": "feature",
+          "bump": "minor",
+          "body": "Manage pending changelog entries with `init`, `add`, `status`, `check`, and `release` commands. Calculate semantic version bumps and update TOML, JSON, or plain-text version files."
+        },
+        {
+          "id": "7b94f5ae7d31",
+          "type": "feature",
+          "bump": "minor",
+          "body": "Archive released entries as JSON and regenerate release history with `ledgr render`."
+        }
+      ]
+    },
+    {
+      "type": "other",
+      "heading": "Other changes",
+      "changes": [
+        {
+          "id": "1ad9c8b9e0ae",
+          "type": "other",
+          "bump": "none",
+          "body": "Support Python 3.11–3.15, with CI coverage on Linux, macOS, and Windows."
+        },
+        {
+          "id": "4a6933a78773",
+          "type": "other",
+          "bump": "none",
+          "body": "Prepare PyPI publishing with package metadata and an Apache-2.0 license."
+        }
+      ]
+    }
+  ]
+}

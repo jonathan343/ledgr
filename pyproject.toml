@@ -6,10 +6,15 @@ readme = "README.md"
 authors = [
     { name = "jonathan343", email = "jonathangee09@gmail.com" }
 ]
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 dependencies = ["PyYAML>=6.0.3", "Jinja2>=3.1.6", "tomlkit>=0.14"]
 classifiers = [
     "Development Status :: 1 - Planning",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
 ]
 
 [project.scripts]

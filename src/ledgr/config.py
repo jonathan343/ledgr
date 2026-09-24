@@ -25,6 +25,7 @@ class Config:
     version_file: Path
     version_key: str | None = None
     changes: Path = Path(".ledgr/changes")
+    releases: Path = Path(".ledgr/releases")
     changelog: Path = Path("CHANGELOG.md")
     template: Path | None = None
     pre_1_0: bool = True
@@ -82,6 +83,7 @@ def load(root: Path, explicit: str | None = None) -> Config:
         "version-file",
         "version-key",
         "changes",
+        "releases",
         "changelog",
         "template",
         "pre-1-0",
@@ -89,7 +91,14 @@ def load(root: Path, explicit: str | None = None) -> Config:
     }
     if unknown := data.keys() - allowed:
         raise Error(f"Unknown configuration fields: {', '.join(sorted(unknown))}")
-    for key in ("version-file", "version-key", "changes", "changelog", "template"):
+    for key in (
+        "version-file",
+        "version-key",
+        "changes",
+        "releases",
+        "changelog",
+        "template",
+    ):
         if key in data and (not isinstance(data[key], str) or not data[key]):
             raise Error(f"{key} must be a nonempty string.")
     if "version-file" not in data:
@@ -104,6 +113,7 @@ def load(root: Path, explicit: str | None = None) -> Config:
         version_file=(base / data["version-file"]).resolve(),
         version_key=data.get("version-key"),
         changes=(base / data.get("changes", ".ledgr/changes")).resolve(),
+        releases=(base / data.get("releases", ".ledgr/releases")).resolve(),
         changelog=(base / data.get("changelog", "CHANGELOG.md")).resolve(),
         template=(base / data["template"]).resolve() if "template" in data else None,
         pre_1_0=data.get("pre-1-0", True),

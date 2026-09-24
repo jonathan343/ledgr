@@ -374,3 +374,230 @@ def test_malformed_project_tables_are_reported(
     assert "must be a table" in error
     assert "Traceback" not in error
     assert snapshot(tmp_path) == before
+
+
+def test_archive_snapshots_release_and_renders_without_pending_inputs(
+    project, monkeypatch, capsys
+):
+    from datetime import datetime
+
+    from ledgr import core
+
+    class ReleaseClock:
+        @staticmethod
+        def now():
+            return datetime(2022, 4, 7, 12).astimezone()
+
+    monkeypatch.setattr(core, "datetime", ReleaseClock)
+    (project / "ledgr.toml").write_text("""version-file = "VERSION"
+releases = "history/releases"
+[types.security]
+heading = "Security updates"
+bump = "minor"
+""")
+    assert (
+        main(
+            [
+                "add",
+                "security",
+                "Fix café access\n\nRotate your token.",
+                "--bump",
+                "patch",
+            ]
+        )
+        == 0
+    )
+    fragment = next((project / ".ledgr/changes").glob("*.md"))
+    assert main(["add", "docs", "Document token rotation"]) == 0
+    docs = next(
+        path for path in (project / ".ledgr/changes").glob("*.md") if path != fragment
+    )
+    assert main(["release"]) == 0
+    archive = project / "history/releases/0.3.3.json"
+    data = json.loads(archive.read_text(encoding="utf-8"))
+    assert data == {
+        "schema-version": 1,
+        "version": "0.3.3",
+        "date": "2022-04-07",
+        "sections": [
+            {
+                "type": "docs",
+                "heading": "Documentation",
+                "changes": [
+                    {
+                        "id": docs.stem,
+                        "type": "docs",
+                        "bump": "none",
+                        "body": "Document token rotation",
+                    },
+                ],
+            },
+            {
+                "type": "security",
+                "heading": "Security updates",
+                "changes": [
+                    {
+                        "id": fragment.stem,
+                        "type": "security",
+                        "bump": "patch",
+                        "body": "Fix café access\n\nRotate your token.",
+                    },
+                ],
+            },
+        ],
+    }
+    assert not fragment.exists() and not docs.exists()
+    # Rendering depends on archived data, not the version file, pending changes,
+    # today's date, or current type definitions.
+    monkeypatch.setattr(core, "datetime", datetime)
+    (project / "VERSION").unlink()
+    (project / ".ledgr/changes/invalid.md").write_text("Not valid front matter")
+    (project / "ledgr.toml").write_text("""version-file = "VERSION"
+releases = "history/releases"
+template = "release.j2"
+[types.docs]
+heading = "Renamed docs"
+bump = "major"
+""")
+    (project / "release.j2").write_text(
+        "{{ version }} / {{ date }}\n{% for section in sections %}{{ section.heading }}\n{% for change in section.changes %}{{ change.body }} [{{ change.bump }}]\n{% endfor %}{% endfor %}"
+    )
+    before = snapshot(project)
+    capsys.readouterr()
+    assert main(["render"]) == 0
+    rendered = capsys.readouterr().out
+    assert "0.3.3 / 2022-04-07" in rendered
+    assert "Security updates\nFix café access\n\nRotate your token. [patch]" in rendered
+    assert "Documentation\nDocument token rotation [none]" in rendered
+    assert "Renamed docs" not in rendered
+    assert snapshot(project) == before
+
+
+def test_render_orders_releases_semantically_and_excludes_pending(project, capsys):
+    assert main(["add", "bugfix", "Older correction"]) == 0
+    assert main(["release", "--version", "0.9.0"]) == 0
+    first = (project / ".ledgr/releases/0.9.0.json").read_bytes()
+    assert main(["add", "feature", "New functionality"]) == 0
+    assert main(["release"]) == 0
+    assert (project / ".ledgr/releases/0.9.0.json").read_bytes() == first
+    assert main(["add", "feature", "Not released"]) == 0
+    capsys.readouterr()
+    before = snapshot(project)
+    assert main(["render"]) == 0
+    rendered = capsys.readouterr().out
+    assert rendered.index("## 0.10.0") < rendered.index("## 0.9.0")
+    assert "Older correction" in rendered and "New functionality" in rendered
+    assert "Not released" not in rendered
+    assert snapshot(project) == before
+
+
+@pytest.mark.parametrize("dry_run", [False, True])
+def test_release_refuses_existing_archive(project, dry_run):
+    directory = project / ".ledgr/releases"
+    directory.mkdir()
+    (directory / "0.3.3.json").write_text("Existing archive, even if malformed")
+    assert main(["add", "bugfix", "New correction"]) == 0
+    before = snapshot(project)
+    assert main(["release", *(["--dry-run"] if dry_run else [])]) == 1
+    assert snapshot(project) == before
+
+
+@pytest.mark.parametrize("partial_write", [False, True])
+def test_archive_creation_failure_does_not_change_release_files(
+    project, monkeypatch, partial_write
+):
+    from contextlib import contextmanager
+    from types import SimpleNamespace
+
+    assert main(["add", "bugfix", "Fix parsing"]) == 0
+    before = snapshot(project)
+    original = Path.open
+
+    @contextmanager
+    def broken_stream(path, *args, **kwargs):
+        with original(path, *args, **kwargs) as stream:
+
+            def write(content):
+                stream.write(content[:20])
+                raise OSError("Archive write failed")
+
+            yield SimpleNamespace(write=write)
+
+    def fail_archive(path, *args, **kwargs):
+        if path.suffix == ".json" and args and args[0] == "x":
+            if partial_write:
+                return broken_stream(path, *args, **kwargs)
+            raise OSError("Archive creation failed")
+        return original(path, *args, **kwargs)
+
+    monkeypatch.setattr(Path, "open", fail_archive)
+    assert main(["release"]) == 1
+    assert snapshot(project) == before
+    assert not (project / ".ledgr/releases").exists()
+
+
+def test_failed_rollback_retains_archive_for_recovery(project, monkeypatch):
+    from ledgr import core
+
+    assert main(["add", "bugfix", "Recoverable change"]) == 0
+
+    def fail_write(path, content):
+        raise OSError("Cannot write or restore release files")
+
+    monkeypatch.setattr(core, "atomic_write", fail_write)
+    assert main(["release"]) == 1
+    archive = json.loads((project / ".ledgr/releases/0.3.3.json").read_text())
+    assert archive["sections"][0]["changes"][0]["body"] == "Recoverable change"
+    assert list((project / ".ledgr/changes").glob("*.md"))
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("schema-version", 99),
+        ("schema-version", True),
+        ("version", "0.4.0"),
+        ("date", "2022-02-30"),
+        ("date", None),
+        ("sections", []),
+        (
+            "sections",
+            [
+                {
+                    "type": "bugfix",
+                    "heading": "Fixes",
+                    "changes": [
+                        {"id": "x", "type": "bugfix", "bump": "invalid", "body": "Fix"}
+                    ],
+                }
+            ],
+        ),
+    ],
+)
+def test_invalid_archives_fail_check_and_render_without_partial_output(
+    project, capsys, field, value
+):
+    assert main(["add", "bugfix", "First correction"]) == 0
+    assert main(["release"]) == 0
+    assert main(["add", "bugfix", "Second correction"]) == 0
+    assert main(["release"]) == 0
+    archive = project / ".ledgr/releases/0.3.3.json"
+    data = json.loads(archive.read_text())
+    data[field] = value
+    archive.write_text(json.dumps(data))
+    before = snapshot(project)
+    capsys.readouterr()
+    assert main(["render"]) == 1
+    output = capsys.readouterr()
+    assert not output.out
+    assert "invalid release archive" in output.err
+    assert main(["check"]) == 1
+    assert snapshot(project) == before
+
+
+def test_render_without_archives_is_an_error(project, capsys):
+    capsys.readouterr()
+    assert main(["render"]) == 1
+    output = capsys.readouterr()
+    assert not output.out
+    assert "No archived releases" in output.err

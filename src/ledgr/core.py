@@ -5,7 +5,7 @@ import os
 import re
 import tempfile
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import Path
 
 import tomlkit
@@ -143,12 +143,100 @@ def read_changes(config: Config) -> list[Change]:
     return changes
 
 
-def render_entry(config: Config, changes: list[Change], target: str) -> str:
+def release_data(config: Config, changes: list[Change], target: str) -> dict:
     sections = [
-        {"type": kind, "heading": settings["heading"], "changes": selected}
+        {
+            "type": kind,
+            "heading": settings["heading"],
+            "changes": [
+                {
+                    "id": change.path.stem,
+                    "type": change.type,
+                    "bump": change.bump,
+                    "body": change.body,
+                }
+                for change in selected
+            ],
+        }
         for kind, settings in config.types.items()
         if (selected := [change for change in changes if change.type == kind])
     ]
+    return {
+        "schema-version": 1,
+        "version": target,
+        "date": datetime.now().astimezone().date().isoformat(),
+        "sections": sections,
+    }
+
+
+def read_releases(config: Config) -> list[dict]:
+    if config.releases.exists() and not config.releases.is_dir():
+        raise Error(f"{config.releases}: expected an archive directory.")
+    releases = []
+    for path in config.releases.glob("*.json"):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+            if (
+                not isinstance(data, dict)
+                or type(data.get("schema-version")) is not int
+                or data["schema-version"] != 1
+            ):
+                raise Error("expected archive schema-version 1")
+            version(data.get("version"))
+            if data["version"] != path.stem:
+                raise Error("archive version must match its filename")
+            if (
+                not isinstance(data.get("date"), str)
+                or date.fromisoformat(data["date"]).isoformat() != data["date"]
+            ):
+                raise Error("expected release date in YYYY-MM-DD format")
+            sections = data.get("sections")
+            if not isinstance(sections, list) or not sections:
+                raise Error("expected nonempty sections")
+            for section in sections:
+                if not isinstance(section, dict) or any(
+                    not isinstance(section.get(key), str) or not section[key].strip()
+                    for key in ("type", "heading")
+                ):
+                    raise Error("each section needs a type and heading")
+                changes = section.get("changes")
+                if not isinstance(changes, list) or not changes:
+                    raise Error("each section needs nonempty changes")
+                for change in changes:
+                    if not isinstance(change, dict) or any(
+                        not isinstance(change.get(key), str) or not change[key].strip()
+                        for key in ("id", "type", "body")
+                    ):
+                        raise Error("each change needs an id, type, and body")
+                    if (
+                        change["type"] != section["type"]
+                        or change.get("bump") not in BUMPS
+                    ):
+                        raise Error("invalid change type or bump")
+            releases.append(data)
+        except (ValueError, Error) as exc:
+            raise Error(f"{path}: invalid release archive: {exc}") from exc
+    return sorted(
+        releases, key=lambda release: version(release["version"]), reverse=True
+    )
+
+
+def archive_path(config: Config, target: str) -> Path:
+    version(target)
+    path = config.releases / f"{target}.json"
+    if path.exists() or path.is_symlink():
+        raise Error(f"Release archive already exists: {path}")
+    for directory in path.parents:
+        if directory.exists() and not directory.is_dir():
+            raise Error(f"{directory}: expected an archive directory.")
+    if path.resolve() in {config.version_file, config.changelog, config.template}:
+        raise Error(
+            "Release archive must not overlap version, changelog, or template files."
+        )
+    return path
+
+
+def render_entry(config: Config, release: dict) -> str:
     environment = Environment(
         loader=FileSystemLoader(config.template.parent) if config.template else None,
         undefined=StrictUndefined,
@@ -162,9 +250,9 @@ def render_entry(config: Config, changes: list[Change], target: str) -> str:
             else environment.from_string(DEFAULT_TEMPLATE)
         )
         entry = template.render(
-            version=target,
-            date=datetime.now().astimezone().date().isoformat(),
-            sections=sections,
+            version=release["version"],
+            date=release["date"],
+            sections=release["sections"],
         ).strip()
     except TemplateError as exc:
         raise Error(f"Cannot render release template: {exc}") from exc
@@ -231,9 +319,11 @@ def apply_release(
     changes: list[Change],
     version_text: str,
     changelog_text: str,
+    release: dict,
 ) -> None:
     # Keep originals until all writes and removals succeed. Each replacement is
     # atomic; rollback covers ordinary I/O failures, not machine/power failures.
+    archive = archive_path(config, release["version"])
     paths = [source.path, config.changelog, *(change.path for change in changes)]
     if len(set(paths)) != len(paths):
         raise Error("Version, changelog, and fragment paths must not overlap.")
@@ -241,15 +331,34 @@ def apply_release(
         path: path.read_bytes().decode("utf-8") if path.exists() else None
         for path in paths
     }
+    archive_text = json.dumps(release, indent=2, ensure_ascii=False) + "\n"
+    missing_dirs = [
+        directory
+        for directory in (archive.parent, *archive.parent.parents)
+        if not directory.exists()
+    ]
+    archive_created = False
     try:
+        archive.parent.mkdir(parents=True, exist_ok=True)
+        # Exclusive creation protects existing archives, including a collision
+        # after preflight. Pending fragments remain until this write succeeds.
+        with archive.open("x", encoding="utf-8", newline="") as stream:
+            archive_created = True
+            stream.write(archive_text)
         atomic_write(source.path, version_text)
         atomic_write(config.changelog, changelog_text)
         for change in changes:
             change.path.unlink()
     except OSError:
-        for path, content in originals.items():
-            if content is None:
-                path.unlink(missing_ok=True)
-            else:
-                atomic_write(path, content)
+        if archive_created:
+            # Retain the archive for recovery if rollback itself fails.
+            for path, content in originals.items():
+                if content is None:
+                    path.unlink(missing_ok=True)
+                else:
+                    atomic_write(path, content)
+            archive.unlink(missing_ok=True)
+        for directory in missing_dirs:
+            if directory.exists() and not any(directory.iterdir()):
+                directory.rmdir()
         raise

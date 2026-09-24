@@ -69,14 +69,34 @@ only such entries needs an explicit `--bump patch|minor|major` or `--version X.Y
 Explicit release targets cannot go below the version required by pending changes.
 An empty set of pending changes cannot be released.
 
-`release` validates and renders before writing, updates the version and changelog,
-then removes consumed fragments. `--dry-run` does none of those writes. Ordinary
-I/O failures trigger rollback; this is not a crash-proof multi-file transaction.
+`release` validates and renders before writing, archives the release data, updates
+the version and changelog, then removes consumed fragments. `--dry-run` does none
+of those writes. Ordinary I/O failures trigger rollback; this is not a crash-proof
+multi-file transaction.
 Run one release process at a time and review the resulting diff before committing.
 Ledgr never commits, tags, pushes, publishes, or updates package lockfiles.
 
 This initial version supports single-package projects and stable `X.Y.Z` versions.
 Prerelease/build metadata and monorepo coordination are not supported yet.
+
+## Release archives
+
+Each release saves pending entries to `.ledgr/releases/<version>.json` before
+removing their fragments. Archives preserve entry text, IDs, types, effective
+bumps, section headings, and the release date. Commit them with the release;
+existing archives are never overwritten. If rollback fails, the archive remains
+for recovery.
+
+Render archived releases to stdout, newest version first, using the current
+template and original release dates:
+
+```sh
+ledgr render > CHANGELOG.preview.md
+```
+
+Rendering excludes pending entries, custom introductions, manual edits, and
+unarchived history. Review the output before replacing your changelog. Normal
+releases preserve existing changelog content. `ledgr check` validates archives.
 
 ## Configuration
 
@@ -92,6 +112,7 @@ explicitly with `ledgr --config path/to/ledgr.toml status` (before the command).
 version-file = "pyproject.toml"
 version-key = "project.version"
 changes = ".ledgr/changes"
+releases = ".ledgr/releases"
 changelog = "CHANGELOG.md"
 pre-1-0 = true
 # template = ".ledgr/release.md.j2"
@@ -131,7 +152,8 @@ Templates use Jinja2 and render a single release entry. They receive:
 - `version`: the target version string.
 - `date`: the local release date as `YYYY-MM-DD`.
 - `sections`: ordered, nonempty groups with `type`, `heading`, and `changes`.
-- Each change has `type`, `bump` (effective), and `body` (Markdown).
+- Each change has `id` (fragment identifier), `type`, `bump` (effective), and
+  `body` (Markdown).
 
 Example `.ledgr/release.md.j2`:
 
@@ -151,4 +173,4 @@ Rendering never determines the version bump.
 Ledgr inserts new entries after `<!-- ledgr releases -->`, preserving the
 introduction and earlier releases. For an existing changelog, add that marker once
 above the latest release before initializing. Template changes affect future
-entries only.
+entries only, unless you explicitly regenerate archived releases with `ledgr render`.

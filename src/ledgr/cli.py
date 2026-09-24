@@ -16,9 +16,12 @@ from .core import (
     MARKER,
     VersionFile,
     apply_release,
+    archive_path,
     insert_entry,
     next_version,
     read_changes,
+    read_releases,
+    release_data,
     release_target,
     render_entry,
     required_bump,
@@ -50,6 +53,7 @@ def parser() -> argparse.ArgumentParser:
     )
     commands.add_parser("status", help="Show pending changes and the proposed version")
     commands.add_parser("check", help="Validate configuration, fragments, and template")
+    commands.add_parser("render", help="Render archived releases to stdout")
     release = commands.add_parser(
         "release", help="Update the version and changelog; consume fragments"
     )
@@ -164,6 +168,13 @@ def run(args) -> None:
     if args.command == "add":
         add_change(config, args)
         return
+    if args.command == "render":
+        releases = read_releases(config)
+        if not releases:
+            raise Error("No archived releases to render.")
+        entries = [render_entry(config, release) for release in releases]
+        print(f"# Changelog\n\n{MARKER}\n\n" + "\n\n".join(entries))
+        return
     source = VersionFile(config)
     changes = read_changes(config)
     proposed = next_version(source.current, required_bump(changes), config.pre_1_0)
@@ -180,10 +191,13 @@ def run(args) -> None:
             else "No version bump required."
         )
     elif args.command == "check":
-        entry = render_entry(config, changes, proposed)
+        releases = read_releases(config)
+        for release in releases:
+            render_entry(config, release)
+        entry = render_entry(config, release_data(config, changes, proposed))
         insert_entry(config, entry)
         print(
-            f"OK: configuration, version, {len(changes)} fragment(s), and template are valid."
+            f"OK: configuration, version, {len(changes)} fragment(s), {len(releases)} archive(s), and template are valid."
         )
     else:
         if not changes:
@@ -191,18 +205,22 @@ def run(args) -> None:
         target = release_target(
             config, source.current, changes, args.version, args.bump
         )
-        entry = render_entry(config, changes, target)
+        archive = archive_path(config, target)
+        release = release_data(config, changes, target)
+        entry = render_entry(config, release)
         changelog_text = insert_entry(config, entry)
         version_text = source.render(target)
         if args.dry_run:
             print(
-                f"Dry run: {source.current} -> {target}; consume {len(changes)} fragment(s).\n"
+                f"Dry run: {source.current} -> {target}; archive {len(changes)} fragment(s) to {archive}.\n"
             )
             print(entry)
         else:
-            apply_release(config, source, changes, version_text, changelog_text)
+            apply_release(
+                config, source, changes, version_text, changelog_text, release
+            )
             print(
-                f"Released {target}; consumed {len(changes)} fragment(s). No commit or tag created."
+                f"Released {target}; archived {len(changes)} fragment(s) to {archive}. No commit or tag created."
             )
 
 

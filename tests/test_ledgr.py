@@ -267,8 +267,9 @@ def test_io_failure_restores_release(project, monkeypatch):
 
 
 def test_installed_entry_point(project):
+    executable = "ledgr.exe" if sys.platform == "win32" else "ledgr"
     result = subprocess.run(
-        [str(Path(sys.executable).with_name("ledgr")), "check"],
+        [str(Path(sys.executable).with_name(executable)), "check"],
         text=True,
         capture_output=True,
         check=False,

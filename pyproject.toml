@@ -1,0 +1,17 @@
+[project]
+name = "log"
+version = "0.0.1"
+description = "Placeholder release. Nothing to see here yet."
+readme = "README.md"
+authors = [
+    { name = "jonathan343", email = "jonathangee09@gmail.com" }
+]
+requires-python = ">=3.14"
+dependencies = []
+classifiers = [
+    "Development Status :: 1 - Planning",
+]
+
+[build-system]
+requires = ["uv_build>=0.11.29,<0.12.0"]
+build-backend = "uv_build"

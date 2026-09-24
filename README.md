@@ -1,7 +1,7 @@
 # ledgr
 
 Fragment-based changelogs and semantic versioning. Record changes alongside your
-code, then combine them into a release. Requires Python 3.14 or newer.
+code, then combine them into a release. Requires Python 3.11 or newer.
 
 ## Quick start
 

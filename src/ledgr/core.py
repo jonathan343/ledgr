@@ -51,7 +51,7 @@ def next_version(current: str, bump: str, pre_1_0: bool) -> str:
 class VersionFile:
     def __init__(self, config: Config):
         self.path = config.version_file
-        self.text = self.path.read_text(encoding="utf-8", newline="")
+        self.text = self.path.read_bytes().decode("utf-8")
         self.format = self.path.suffix.lower()
         self.document = None
         self.parent = None
@@ -177,7 +177,7 @@ def render_entry(config: Config, changes: list[Change], target: str) -> str:
 
 def insert_entry(config: Config, entry: str) -> str:
     previous = (
-        config.changelog.read_text(encoding="utf-8", newline="")
+        config.changelog.read_bytes().decode("utf-8")
         if config.changelog.exists()
         else f"# Changelog\n\n{MARKER}\n"
     )
@@ -238,7 +238,7 @@ def apply_release(
     if len(set(paths)) != len(paths):
         raise Error("Version, changelog, and fragment paths must not overlap.")
     originals = {
-        path: path.read_text(encoding="utf-8", newline="") if path.exists() else None
+        path: path.read_bytes().decode("utf-8") if path.exists() else None
         for path in paths
     }
     try:

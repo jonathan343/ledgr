@@ -30,6 +30,10 @@ dev = [
     { include-group = "typecheck" },
 ]
 
+[tool.ledgr]
+version-file = "pyproject.toml"
+version-key = "project.version"
+
 [tool.ruff]
 line-length = 88
 target-version = "py311"

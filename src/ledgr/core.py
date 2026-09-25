@@ -17,7 +17,7 @@ from yaml.resolver import BaseResolver
 from .config import BUMPS, Config, Error
 
 MARKER = "<!-- ledgr releases -->"
-DEFAULT_TEMPLATE = """## {{ version }} — {{ date }}
+DEFAULT_TEMPLATE = """## v{{ version }} ({{ date }})
 {% for section in sections %}
 ### {{ section.heading }}
 {% for change in section.changes %}

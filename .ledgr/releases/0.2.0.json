@@ -1,0 +1,46 @@
+{
+  "schema-version": 1,
+  "version": "0.2.0",
+  "date": "2026-09-25",
+  "sections": [
+    {
+      "type": "feature",
+      "heading": "Features",
+      "changes": [
+        {
+          "id": "03f10a5bfb81",
+          "type": "feature",
+          "bump": "minor",
+          "body": "Write entry descriptions directly in the editor with `ledgr add --edit`. Cancel empty entries and keep drafts when validation or the editor fails.",
+          "prs": [
+            "https://github.com/jonathan343/ledgr/pull/11"
+          ]
+        },
+        {
+          "id": "8002dca81f8c",
+          "type": "feature",
+          "bump": "minor",
+          "body": "Attach PR links to entries with `ledgr add --pr`, preserve references in release archives, and render them in changelogs.",
+          "prs": [
+            "https://github.com/jonathan343/ledgr/pull/10"
+          ]
+        }
+      ]
+    },
+    {
+      "type": "other",
+      "heading": "Other changes",
+      "changes": [
+        {
+          "id": "98ea018801f2",
+          "type": "other",
+          "bump": "patch",
+          "body": "Format default release headings as `v1.2.3 (YYYY-MM-DD)`.",
+          "prs": [
+            "https://github.com/jonathan343/ledgr/pull/12"
+          ]
+        }
+      ]
+    }
+  ]
+}

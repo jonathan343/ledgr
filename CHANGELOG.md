@@ -2,6 +2,19 @@
 
 <!-- ledgr releases -->
 
+## v0.2.0 (2026-09-25)
+
+### Features
+
+- Write entry descriptions directly in the editor with `ledgr add --edit`. Cancel empty entries and keep drafts when validation or the editor fails. ([#11](<https://github.com/jonathan343/ledgr/pull/11>))
+
+- Attach PR links to entries with `ledgr add --pr`, preserve references in release archives, and render them in changelogs. ([#10](<https://github.com/jonathan343/ledgr/pull/10>))
+
+### Other changes
+
+- Format default release headings as `v1.2.3 (YYYY-MM-DD)`. ([#12](<https://github.com/jonathan343/ledgr/pull/12>))
+
+
 ## v0.1.0 (2026-09-24)
 
 ### Features

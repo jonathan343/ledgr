@@ -143,35 +143,34 @@ MetadataLoader.add_constructor(BaseResolver.DEFAULT_MAPPING_TAG, metadata_mappin
 
 
 def read_changes(config: Config) -> list[Change]:
-    changes = []
-    for path in sorted(config.changes.glob("*.md")):
-        lines = path.read_text(encoding="utf-8").splitlines()
-        if not lines or lines[0] != "---":
-            raise Error(f"{path}: expected YAML front matter starting with ---.")
-        try:
-            end = lines.index("---", 1)
-            metadata = yaml.load("\n".join(lines[1:end]), Loader=MetadataLoader)
-        except (ValueError, yaml.YAMLError, Error) as exc:
-            raise Error(f"{path}: invalid YAML front matter: {exc}") from exc
-        if not isinstance(metadata, dict) or metadata.keys() - {"type", "bump", "prs"}:
-            raise Error(
-                f"{path}: metadata must contain type and optional bump/prs only."
-            )
-        kind = metadata.get("type")
-        if not isinstance(kind, str) or kind not in config.types:
-            raise Error(f"{path}: unknown change type {kind!r}.")
-        bump = metadata.get("bump", config.types[kind]["bump"])
-        if bump not in BUMPS:
-            raise Error(f"{path}: invalid bump {bump!r}.")
-        body = "\n".join(lines[end + 1 :]).strip()
-        if not body:
-            raise Error(f"{path}: change body must not be empty.")
-        try:
-            prs = validate_prs(metadata.get("prs", []))
-        except (ValueError, Error) as exc:
-            raise Error(f"{path}: {exc}") from exc
-        changes.append(Change(path, kind, bump, body, prs))
-    return changes
+    return [read_change(config, path) for path in sorted(config.changes.glob("*.md"))]
+
+
+def read_change(config: Config, path: Path, *, allow_empty: bool = False) -> Change:
+    lines = path.read_text(encoding="utf-8").splitlines()
+    if not lines or lines[0] != "---":
+        raise Error(f"{path}: expected YAML front matter starting with ---.")
+    try:
+        end = lines.index("---", 1)
+        metadata = yaml.load("\n".join(lines[1:end]), Loader=MetadataLoader)
+    except (ValueError, yaml.YAMLError, Error) as exc:
+        raise Error(f"{path}: invalid YAML front matter: {exc}") from exc
+    if not isinstance(metadata, dict) or metadata.keys() - {"type", "bump", "prs"}:
+        raise Error(f"{path}: metadata must contain type and optional bump/prs only.")
+    kind = metadata.get("type")
+    if not isinstance(kind, str) or kind not in config.types:
+        raise Error(f"{path}: unknown change type {kind!r}.")
+    bump = metadata.get("bump", config.types[kind]["bump"])
+    if bump not in BUMPS:
+        raise Error(f"{path}: invalid bump {bump!r}.")
+    body = "\n".join(lines[end + 1 :]).strip()
+    if not body and not allow_empty:
+        raise Error(f"{path}: change body must not be empty.")
+    try:
+        prs = validate_prs(metadata.get("prs", []))
+    except (ValueError, Error) as exc:
+        raise Error(f"{path}: {exc}") from exc
+    return Change(path, kind, bump, body, prs)
 
 
 def release_data(config: Config, changes: list[Change], target: str) -> dict:

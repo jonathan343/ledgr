@@ -19,6 +19,7 @@ from .core import (
     archive_path,
     insert_entry,
     next_version,
+    read_change,
     read_changes,
     read_releases,
     release_data,
@@ -134,19 +135,26 @@ def initialize(args) -> None:
 
 def add_change(config, args) -> None:
     kind, body = args.type, args.body
-    if not kind or not body:
+    if not kind or (not body and not args.edit):
         if not sys.stdin.isatty():
-            raise Error("Pass a type and body when stdin is not interactive.")
+            raise Error(
+                "Pass a type and either a body or --edit when stdin is not interactive."
+            )
         kind = kind or input(f"Type ({', '.join(config.types)}): ").strip()
-        body = body or input("Change description: ").strip()
+        if not body and not args.edit:
+            body = input("Change description: ").strip()
     if kind not in config.types:
         raise Error(f"Unknown type {kind!r}. Choose from: {', '.join(config.types)}")
-    if not body.strip():
+    body = (body or "").strip()
+    if not body and not args.edit:
         raise Error("Change body must not be empty.")
     prs = validate_prs(args.pr)
     editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
     if args.edit and not editor:
         raise Error("Set VISUAL or EDITOR to use --edit.")
+    editor_command = shlex.split(editor) if args.edit and editor else []
+    if args.edit and not editor_command:
+        raise Error("VISUAL or EDITOR must contain a command.")
     config.changes.mkdir(parents=True, exist_ok=True)
     path = config.changes / f"{uuid4().hex[:12]}.md"
     metadata = {"type": kind}
@@ -159,16 +167,22 @@ def add_change(config, args) -> None:
             "---\n"
             + yaml.safe_dump(metadata, sort_keys=False)
             + "---\n\n"
-            + body.strip()
+            + body
             + "\n"
         )
+    if args.edit:
+        try:
+            completed = subprocess.run([*editor_command, str(path)], check=False)
+            if completed.returncode:
+                raise Error(f"Editor exited with {completed.returncode}.")
+            change = read_change(config, path, allow_empty=True)
+        except (Error, OSError, ValueError) as exc:
+            raise Error(f"{exc} Draft kept at {path}.") from exc
+        if not change.body:
+            path.unlink()
+            print("Cancelled: empty entry removed.")
+            return
     print(f"Created {path}")
-    if args.edit and editor:
-        completed = subprocess.run([*shlex.split(editor), str(path)], check=False)
-        if completed.returncode:
-            raise Error(
-                f"Editor exited with {completed.returncode}; fragment kept at {path}."
-            )
 
 
 def run(args) -> None:

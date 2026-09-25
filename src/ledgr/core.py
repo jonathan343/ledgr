@@ -4,9 +4,10 @@ import json
 import os
 import re
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from pathlib import Path
+from urllib.parse import urlsplit
 
 import tomlkit
 import yaml
@@ -20,7 +21,7 @@ DEFAULT_TEMPLATE = """## {{ version }} — {{ date }}
 {% for section in sections %}
 ### {{ section.heading }}
 {% for change in section.changes %}
-- {{ change.body | indent(2) }}
+- {{ change.body | indent(2) }}{% if change.prs %}{{ '\\n\\n  ' if '\\n' in change.body else ' ' }}({% for pr in change.prs %}[#{{ pr.rsplit('/', 1)[-1] }}](<{{ pr }}>){% if not loop.last %}, {% endif %}{% endfor %}){% endif %}
 {% endfor %}{% endfor %}"""
 
 
@@ -98,6 +99,30 @@ class Change:
     type: str
     bump: str
     body: str
+    prs: list[str] = field(default_factory=list)
+
+
+def validate_prs(value) -> list[str]:
+    if not isinstance(value, list):
+        raise Error("prs must be a list of pull request URLs.")
+    for url in value:
+        if not isinstance(url, str) or re.search(r"[\s<>\\]", url):
+            raise Error(
+                "Each PR must be an HTTP(S) URL ending in a positive PR number."
+            )
+        parsed = urlsplit(url)
+        if (
+            parsed.scheme not in ("http", "https")
+            or not parsed.hostname
+            or parsed.username is not None
+            or parsed.query
+            or parsed.fragment
+            or not re.search(r"/[1-9][0-9]*$", parsed.path)
+        ):
+            raise Error(
+                "Each PR must be an HTTP(S) URL ending in a positive PR number."
+            )
+    return value
 
 
 class MetadataLoader(yaml.SafeLoader):
@@ -128,8 +153,10 @@ def read_changes(config: Config) -> list[Change]:
             metadata = yaml.load("\n".join(lines[1:end]), Loader=MetadataLoader)
         except (ValueError, yaml.YAMLError, Error) as exc:
             raise Error(f"{path}: invalid YAML front matter: {exc}") from exc
-        if not isinstance(metadata, dict) or metadata.keys() - {"type", "bump"}:
-            raise Error(f"{path}: metadata must contain type and optional bump only.")
+        if not isinstance(metadata, dict) or metadata.keys() - {"type", "bump", "prs"}:
+            raise Error(
+                f"{path}: metadata must contain type and optional bump/prs only."
+            )
         kind = metadata.get("type")
         if not isinstance(kind, str) or kind not in config.types:
             raise Error(f"{path}: unknown change type {kind!r}.")
@@ -139,7 +166,11 @@ def read_changes(config: Config) -> list[Change]:
         body = "\n".join(lines[end + 1 :]).strip()
         if not body:
             raise Error(f"{path}: change body must not be empty.")
-        changes.append(Change(path, kind, bump, body))
+        try:
+            prs = validate_prs(metadata.get("prs", []))
+        except (ValueError, Error) as exc:
+            raise Error(f"{path}: {exc}") from exc
+        changes.append(Change(path, kind, bump, body, prs))
     return changes
 
 
@@ -154,6 +185,7 @@ def release_data(config: Config, changes: list[Change], target: str) -> dict:
                     "type": change.type,
                     "bump": change.bump,
                     "body": change.body,
+                    **({"prs": change.prs} if change.prs else {}),
                 }
                 for change in selected
             ],
@@ -213,6 +245,7 @@ def read_releases(config: Config) -> list[dict]:
                         or change.get("bump") not in BUMPS
                     ):
                         raise Error("invalid change type or bump")
+                    validate_prs(change.get("prs", []))
             releases.append(data)
         except (ValueError, Error) as exc:
             raise Error(f"{path}: invalid release archive: {exc}") from exc
@@ -252,7 +285,13 @@ def render_entry(config: Config, release: dict) -> str:
         entry = template.render(
             version=release["version"],
             date=release["date"],
-            sections=release["sections"],
+            sections=[
+                {
+                    **section,
+                    "changes": [{"prs": [], **change} for change in section["changes"]],
+                }
+                for section in release["sections"]
+            ],
         ).strip()
     except TemplateError as exc:
         raise Error(f"Cannot render release template: {exc}") from exc

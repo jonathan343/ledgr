@@ -1,38 +1,57 @@
 # ledgr
 
-Fragment-based changelogs and semantic versioning. Record changes alongside your
-code, then combine them into a release. Requires Python 3.11 or newer.
+[![PyPI version](https://img.shields.io/pypi/v/ledgr.svg)](https://pypi.org/project/ledgr/)
+[![Python versions](https://img.shields.io/pypi/pyversions/ledgr.svg)](https://pypi.org/project/ledgr/)
+[![CI status](https://github.com/jonathan343/ledgr/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jonathan343/ledgr/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
+
+Record changes alongside your code, then combine them into a changelog and
+semantic version bump. Ledgr supports single-package projects with stable `X.Y.Z`
+versions; prereleases, build metadata, and monorepo coordination aren't supported yet.
+
+## Install
+
+Install from [PyPI](https://pypi.org/project/ledgr/) with
+[uv](https://docs.astral.sh/uv/getting-started/installation/):
+
+```sh
+uv tool install ledgr
+```
+
+Requires Python 3.11 or newer. Upgrade with `uv tool upgrade ledgr`.
 
 ## Quick start
 
-From this checkout:
+In your project's root directory, initialize Ledgr using the version in
+`pyproject.toml` or `package.json`:
 
 ```sh
-uv sync
-uv run ledgr --help
-uv run pytest
+ledgr init
 ```
 
-Install the checkout as a CLI with `uv tool install .`, then run these commands in
-the project whose changelog you want to manage:
+Without an existing version file, use `ledgr init --initial-version 0.1.0` instead.
+If you already have a `CHANGELOG.md`, first add `<!-- ledgr releases -->` once
+above its latest release. Ledgr preserves the introduction and previous releases.
+
+Record changes, preview the next release, then apply it:
 
 ```sh
-ledgr init                  # Detect pyproject.toml or package.json version
-# Or, without an existing manifest/version file:
-# ledgr init --initial-version 0.1.0
-
 ledgr add feature "Add CSV export"
 ledgr add bugfix "Handle empty configuration files"
-ledgr add breaking "Replace API-key authentication with OAuth" --edit
-ledgr status
-ledgr check
-ledgr release --dry-run
+ledgr status                # Show pending entries and the proposed version
+ledgr check                 # Validate configuration, entries, archives, and template
+ledgr release --dry-run     # Preview without changing files
 ledgr release
 ```
 
-`add` prompts for the type and description when run interactively without them.
-`--edit` uses `$VISUAL`, falling back to `$EDITOR`. Fragments have generated IDs
-and live in `.ledgr/changes/`. Commit them with the corresponding code changes:
+Commit pending entries with their code changes. After a release, review and commit
+the updated version, changelog, archive, and deleted entries. Ledgr never commits,
+tags, pushes, publishes, or updates package lockfiles.
+
+## Entries and change types
+
+Each entry is a Markdown file with YAML front matter in `.ledgr/changes/`, named
+with a generated ID:
 
 ```markdown
 ---
@@ -44,11 +63,16 @@ Replace API-key authentication with OAuth.
 Create an OAuth client in Settings and pass its access token instead.
 ```
 
-The YAML metadata accepts a required `type` and optional `bump`. Everything after
-the closing `---` is Markdown. An omitted bump inherits the current configuration;
-an explicit bump remains fixed if the configuration changes.
+`type` is required; `bump` is optional. An omitted bump inherits the current
+configuration; an explicit bump stays fixed. Everything after the closing `---`
+is Markdown.
 
-## Change types and releases
+Run `ledgr add` for interactive prompts. To create and edit an entry, set `$VISUAL`
+or `$EDITOR` and use `--edit` (`$VISUAL` takes precedence):
+
+```sh
+ledgr add breaking "Replace API-key authentication with OAuth" --edit
+```
 
 | Type | Changelog heading | Default bump |
 | --- | --- | --- |
@@ -58,34 +82,34 @@ an explicit bump remains fixed if the configuration changes.
 | `docs` | Documentation | none |
 | `other` | Other changes | none |
 
-Each entry has one type. Choose `breaking` for incompatible changes; there is no
-separate breaking flag. The largest effective bump wins. While the current version
-is `0.x`, a major bump becomes a minor bump by default. Use
-`ledgr release --version 1.0.0` to explicitly promote the project to stable.
+Choose `breaking` for incompatible changes. Customize types in
+[configuration](#configuration), or override one entry's bump:
 
-Override a single entry with `ledgr add other "Update certificates" --bump patch`.
-Entries with bump `none` are still included in the changelog. A release containing
-only such entries needs an explicit `--bump patch|minor|major` or `--version X.Y.Z`.
-Explicit release targets cannot go below the version required by pending changes.
-An empty set of pending changes cannot be released.
+```sh
+ledgr add other "Update certificates" --bump patch
+```
 
-`release` validates and renders before writing, archives the release data, updates
-the version and changelog, then removes consumed fragments. `--dry-run` does none
-of those writes. Ordinary I/O failures trigger rollback; this is not a crash-proof
-multi-file transaction.
-Run one release process at a time and review the resulting diff before committing.
-Ledgr never commits, tags, pushes, publishes, or updates package lockfiles.
+## Releases
 
-This initial version supports single-package projects and stable `X.Y.Z` versions.
-Prerelease/build metadata and monorepo coordination are not supported yet.
+The largest pending bump determines the next version. Before `1.0.0`, a major bump
+becomes a minor bump by default. Use `ledgr release --version 1.0.0` to move to stable,
+or set `pre-1-0 = false` for literal major/minor/patch bumps.
 
-## Release archives
+Entries with bump `none` still appear in the changelog. If all pending entries use
+`none`, choose `ledgr release --bump patch` or an explicit `--version X.Y.Z`.
+`--bump` accepts `patch`, `minor`, or `major`. A release must have pending entries,
+increase the version, and meet the minimum bump required by those entries.
 
-Each release saves pending entries to `.ledgr/releases/<version>.json` before
-removing their fragments. Archives preserve entry text, IDs, types, effective
-bumps, section headings, and the release date. Commit them with the release;
-existing archives are never overwritten. If rollback fails, the archive remains
+`release` validates and renders, saves `.ledgr/releases/<version>.json`, updates
+the version and changelog, then removes consumed entries. Archives preserve entry
+text, IDs, types, effective bumps, headings, and the release date; existing archives
+are never overwritten.
+
+Run one release process at a time. Ordinary I/O failures trigger rollback, but
+releases aren't crash-proof transactions. If rollback fails, the archive remains
 for recovery.
+
+### Render archived releases
 
 Render archived releases to stdout, newest version first, using the current
 template and original release dates:
@@ -94,9 +118,9 @@ template and original release dates:
 ledgr render > CHANGELOG.preview.md
 ```
 
-Rendering excludes pending entries, custom introductions, manual edits, and
-unarchived history. Review the output before replacing your changelog. Normal
-releases preserve existing changelog content. `ledgr check` validates archives.
+Unlike normal releases, rendering excludes custom introductions, manual edits,
+and unarchived history, as well as pending entries. Review the output before
+replacing your changelog.
 
 ## Configuration
 
@@ -111,6 +135,7 @@ explicitly with `ledgr --config path/to/ledgr.toml status` (before the command).
 # ledgr.toml
 version-file = "pyproject.toml"
 version-key = "project.version"
+# Optional settings (defaults shown):
 changes = ".ledgr/changes"
 releases = ".ledgr/releases"
 changelog = "CHANGELOG.md"
@@ -127,27 +152,29 @@ bump = "patch"                # Custom types require a bump
 
 Overrides merge with the five built-in types. Built-in sections retain their
 order; custom types follow in configuration order. Empty sections are omitted.
-Set `pre-1-0 = false` for literal major/minor/patch mapping at every version.
 
 ### Version files
 
-The configured file is the version source of truth; Ledgr never extracts versions
-from changelog headings.
+The configured file determines the current version, not the changelog.
 
-| File | `version-key` | Example initialization |
+| File | `version-file` example | `version-key` example |
 | --- | --- | --- |
-| TOML | Dotted table/key path | `ledgr init --version-file pyproject.toml --version-key project.version` |
-| JSON | Dotted object/key path | `ledgr init --version-file package.json --version-key version` |
-| Plain text | Omit | `ledgr init --version-file VERSION --initial-version 0.1.0` |
+| TOML | `pyproject.toml` | `project.version` |
+| JSON | `package.json` | `version` |
+| Plain text | `VERSION` | Omit |
+
+For a custom location, pass `--version-file` and, for TOML/JSON, `--version-key`
+to `ledgr init`. TOML/JSON version fields must already exist. `--initial-version`
+creates a missing plain-text file without overwriting an existing one.
 
 TOML comments and formatting are preserved. JSON is rewritten with two-space
 indentation, preserving other field values. Plain-text files contain only the
-version. Initial versions never overwrite existing files; TOML/JSON version fields
-must already exist. Dotted keys do not support literal dots in field names or arrays.
+version. Dotted keys address nested tables/objects, not literal dots in names or arrays.
 
 ## Custom templates
 
-Templates use Jinja2 and render a single release entry. They receive:
+Set `template = ".ledgr/release.md.j2"` in your configuration to use a custom
+Jinja2 template. Templates render one release and receive:
 
 - `version`: the target version string.
 - `date`: the local release date as `YYYY-MM-DD`.
@@ -166,11 +193,7 @@ Example `.ledgr/release.md.j2`:
 {% endfor %}{% endfor %}
 ```
 
-Unknown variables and invalid template syntax cause an error. Templates are
-trusted project code, not a sandbox; review custom templates before using them.
-Rendering never determines the version bump.
-
-Ledgr inserts new entries after `<!-- ledgr releases -->`, preserving the
-introduction and earlier releases. For an existing changelog, add that marker once
-above the latest release before initializing. Template changes affect future
-entries only, unless you explicitly regenerate archived releases with `ledgr render`.
+Template changes affect future releases unless you regenerate the changelog with
+`ledgr render`; they don't affect version bumps. Unknown variables and invalid
+syntax cause errors. Templates are trusted project code, not sandboxed—review
+them before use.

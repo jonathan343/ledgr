@@ -601,3 +601,111 @@ def test_render_without_archives_is_an_error(project, capsys):
     output = capsys.readouterr()
     assert not output.out
     assert "No archived releases" in output.err
+
+
+@pytest.mark.parametrize(
+    "body", ["Fix parsing", "Fix parsing\n\n```sh\nledgr check\n```"]
+)
+def test_pr_links_survive_release_and_custom_rendering(project, capsys, body):
+    import yaml
+
+    urls = [
+        "https://github.com/example/project/pull/12",
+        "https://gitlab.com/example/project/-/merge_requests/37",
+    ]
+    assert main(["add", "bugfix", body, "--pr", urls[0], "--pr", urls[1]]) == 0
+    fragment = next((project / ".ledgr/changes").glob("*.md"))
+    assert yaml.safe_load(fragment.read_text().split("---")[1])["prs"] == urls
+    before = snapshot(project)
+    capsys.readouterr()
+    assert main(["release", "--dry-run"]) == 0
+    preview = capsys.readouterr().out
+    links = f"([#12](<{urls[0]}>), [#37](<{urls[1]}>))"
+    if "\n" in body:
+        assert f"  ```\n\n  {links}" in preview
+    else:
+        assert f"- Fix parsing {links}\n" in preview
+    assert snapshot(project) == before
+    assert main(["release"]) == 0
+    archive = json.loads((project / ".ledgr/releases/0.3.3.json").read_text())
+    change = archive["sections"][0]["changes"][0]
+    assert change["prs"] == urls
+    assert change["body"] == body
+    capsys.readouterr()
+    assert main(["render"]) == 0
+    assert links in capsys.readouterr().out
+    with (project / "ledgr.toml").open("a") as stream:
+        stream.write('template = "release.j2"\n')
+    (project / "release.j2").write_text(
+        "{% for section in sections %}{% for change in section.changes %}{{ change.prs | join(' | ') }}{% endfor %}{% endfor %}"
+    )
+    assert main(["render"]) == 0
+    assert " | ".join(urls) in capsys.readouterr().out
+
+
+def test_legacy_archive_has_empty_prs_in_templates(project, capsys):
+    assert main(["add", "bugfix", "No reference"]) == 0
+    assert main(["release"]) == 0
+    archive = project / ".ledgr/releases/0.3.3.json"
+    assert "prs" not in json.loads(archive.read_text())["sections"][0]["changes"][0]
+    before = archive.read_bytes()
+    with (project / "ledgr.toml").open("a") as stream:
+        stream.write('template = "release.j2"\n')
+    (project / "release.j2").write_text(
+        "{{ sections[0].changes[0].prs | length }} references"
+    )
+    capsys.readouterr()
+    assert main(["render"]) == 0
+    assert "0 references" in capsys.readouterr().out
+    assert archive.read_bytes() == before
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "12",
+        "https://github.com/x/y/pull/0",
+        "javascript:alert(1)",
+        "https://example.com/pull/12#comment",
+        "https://example.com/pull/12?x=y",
+        "https://example.com/pull/1\n2",
+        "https://example.com/<bad>/12",
+        "https://[bad/pull/12",
+    ],
+)
+def test_invalid_pr_option_does_not_write(project, url):
+    before = snapshot(project)
+    assert main(["add", "bugfix", "Fix", "--pr", url]) == 1
+    assert snapshot(project) == before
+
+
+@pytest.mark.parametrize(
+    "prs",
+    [
+        None,
+        "https://example.com/pull/12",
+        [12],
+        [True],
+        ["https://example.com/pull/no-number"],
+    ],
+)
+def test_invalid_pr_metadata_and_archives(project, prs, capsys):
+    import yaml
+
+    assert main(["add", "bugfix", "Fix"]) == 0
+    assert main(["release"]) == 0
+    archive = project / ".ledgr/releases/0.3.3.json"
+    data = json.loads(archive.read_text())
+    data["sections"][0]["changes"][0]["prs"] = prs
+    archive.write_text(json.dumps(data))
+    capsys.readouterr()
+    assert main(["render"]) == 1
+    assert not capsys.readouterr().out
+    fragment = project / ".ledgr/changes/invalid.md"
+    fragment.write_text(
+        "---\n" + yaml.safe_dump({"type": "bugfix", "prs": prs}) + "---\n\nFix\n"
+    )
+    before = snapshot(project)
+    assert main(["check"]) == 1
+    assert main(["release"]) == 1
+    assert snapshot(project) == before

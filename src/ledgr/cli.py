@@ -25,6 +25,7 @@ from .core import (
     release_target,
     render_entry,
     required_bump,
+    validate_prs,
     version,
 )
 
@@ -48,6 +49,13 @@ def parser() -> argparse.ArgumentParser:
     add.add_argument("type", nargs="?")
     add.add_argument("body", nargs="?")
     add.add_argument("--bump", choices=BUMPS)
+    add.add_argument(
+        "--pr",
+        action="append",
+        default=[],
+        metavar="URL",
+        help="Pull request URL (repeat for multiple PRs)",
+    )
     add.add_argument(
         "--edit", action="store_true", help="Open the fragment in $VISUAL or $EDITOR"
     )
@@ -135,6 +143,7 @@ def add_change(config, args) -> None:
         raise Error(f"Unknown type {kind!r}. Choose from: {', '.join(config.types)}")
     if not body.strip():
         raise Error("Change body must not be empty.")
+    prs = validate_prs(args.pr)
     editor = os.environ.get("VISUAL") or os.environ.get("EDITOR")
     if args.edit and not editor:
         raise Error("Set VISUAL or EDITOR to use --edit.")
@@ -143,6 +152,8 @@ def add_change(config, args) -> None:
     metadata = {"type": kind}
     if args.bump is not None:
         metadata["bump"] = args.bump
+    if prs:
+        metadata["prs"] = prs
     with path.open("x", encoding="utf-8") as stream:
         stream.write(
             "---\n"

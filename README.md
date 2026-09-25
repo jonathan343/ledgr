@@ -63,7 +63,7 @@ Replace API-key authentication with OAuth.
 Create an OAuth client in Settings and pass its access token instead.
 ```
 
-`type` is required; `bump` is optional. An omitted bump inherits the current
+`type` is required; `bump` and `prs` are optional. An omitted bump inherits the current
 configuration; an explicit bump stays fixed. Everything after the closing `---`
 is Markdown.
 
@@ -73,6 +73,9 @@ or `$EDITOR` and use `--edit` (`$VISUAL` takes precedence):
 ```sh
 ledgr add breaking "Replace API-key authentication with OAuth" --edit
 ```
+
+Add PR links with `--pr https://github.com/owner/repo/pull/42` (repeat for multiple
+PRs), or edit the `prs` list in the entry's YAML front matter.
 
 | Type | Changelog heading | Default bump |
 | --- | --- | --- |
@@ -180,7 +183,7 @@ Jinja2 template. Templates render one release and receive:
 - `date`: the local release date as `YYYY-MM-DD`.
 - `sections`: ordered, nonempty groups with `type`, `heading`, and `changes`.
 - Each change has `id` (fragment identifier), `type`, `bump` (effective), and
-  `body` (Markdown).
+  `body` (Markdown), plus `prs` (a list of URLs, empty when absent).
 
 Example `.ledgr/release.md.j2`:
 

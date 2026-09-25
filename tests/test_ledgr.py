@@ -298,20 +298,109 @@ def test_marker_in_fragment_cannot_corrupt_changelog(project):
 
 def test_interactive_add_and_editor(project, monkeypatch):
     monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
-    replies = iter(["bugfix", "Fix parsing"])
+    replies = iter(["bugfix"])
     monkeypatch.setattr("builtins.input", lambda prompt: next(replies))
+    monkeypatch.delenv("VISUAL", raising=False)
     monkeypatch.setenv("EDITOR", "test-editor --wait")
 
     def edit(command, check):
         assert command[:2] == ["test-editor", "--wait"]
         path = Path(command[-1])
-        path.write_text(path.read_text() + "\nAdditional context.\n")
+        assert path.read_text() == "---\ntype: bugfix\n---\n\n\n"
+        path.write_text(path.read_text() + "Fix parsing\n\nAdditional context.\n")
         return subprocess.CompletedProcess(command, 0)
 
     monkeypatch.setattr(subprocess, "run", edit)
     assert main(["add", "--edit"]) == 0
     assert main(["release"]) == 0
     assert "  Additional context." in (project / "CHANGELOG.md").read_text()
+
+
+@pytest.mark.parametrize("body", [None, "Initial description"])
+def test_editor_skips_body_prompt_and_validates_only_new_entry(
+    project, monkeypatch, body
+):
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: False)
+    monkeypatch.setenv("VISUAL", "visual-editor --wait")
+    monkeypatch.setenv("EDITOR", "unused-editor")
+    (project / ".ledgr/changes/existing.md").write_text("Unrelated invalid draft")
+
+    def edit(command, check):
+        assert command[:2] == ["visual-editor", "--wait"]
+        path = Path(command[-1])
+        assert path.read_text().endswith(f"---\n\n{body or ''}\n")
+        path.write_text(path.read_text() + "Edited description\n")
+        return subprocess.CompletedProcess(command, 0)
+
+    monkeypatch.setattr(subprocess, "run", edit)
+    assert main(["add", "feature", *([body] if body else []), "--edit"]) == 0
+    created = next(
+        p for p in (project / ".ledgr/changes").glob("*.md") if p.name != "existing.md"
+    )
+    assert "Edited description" in created.read_text()
+
+
+@pytest.mark.parametrize(
+    "result", ["empty", "invalid", "invalid-empty", "failure", "launch-error"]
+)
+def test_editor_cancellation_and_draft_recovery(project, monkeypatch, capsys, result):
+    monkeypatch.setenv("VISUAL", "test-editor")
+    before = snapshot(project)
+
+    def edit(command, check):
+        path = Path(command[-1])
+        if result == "launch-error":
+            raise FileNotFoundError("Editor not found")
+        if result.startswith("invalid"):
+            path.write_text(
+                "---\ntype: unknown\n---\n\n"
+                + ("" if result == "invalid-empty" else "Keep my writing")
+            )
+        else:
+            path.write_text("---\ntype: feature\n---\n\n  \n")
+        return subprocess.CompletedProcess(command, 1 if result == "failure" else 0)
+
+    monkeypatch.setattr(subprocess, "run", edit)
+    capsys.readouterr()
+    assert main(["add", "feature", "Initial description", "--edit"]) == (
+        0 if result == "empty" else 1
+    )
+    output = capsys.readouterr()
+    assert "Created" not in output.out
+    if result == "empty":
+        assert snapshot(project) == before
+        assert "Cancelled" in output.out
+    else:
+        path = next((project / ".ledgr/changes").glob("*.md"))
+        assert f"Draft kept at {path}" in output.err
+        if result.startswith("invalid"):
+            assert path.read_text() == "---\ntype: unknown\n---\n\n" + (
+                "" if result == "invalid-empty" else "Keep my writing"
+            )
+        elif result == "launch-error":
+            assert (
+                path.read_text() == "---\ntype: feature\n---\n\nInitial description\n"
+            )
+        else:
+            assert path.read_text() == "---\ntype: feature\n---\n\n  \n"
+
+
+def test_plain_add_still_prompts_for_body(project, monkeypatch):
+    monkeypatch.setattr(sys.stdin, "isatty", lambda: True)
+    monkeypatch.setattr("builtins.input", lambda prompt: "Terminal description")
+    assert main(["add", "feature"]) == 0
+    assert (
+        "Terminal description"
+        in next((project / ".ledgr/changes").glob("*.md")).read_text()
+    )
+
+
+def test_editor_requires_configuration_without_creating_draft(project, monkeypatch):
+    monkeypatch.delenv("VISUAL", raising=False)
+    monkeypatch.delenv("EDITOR", raising=False)
+    before = snapshot(project)
+    assert main(["add", "feature", "--edit"]) == 1
+    assert snapshot(project) == before
 
 
 def test_removal_failure_restores_consumed_fragments(project, monkeypatch):

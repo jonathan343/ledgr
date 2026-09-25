@@ -71,8 +71,11 @@ Run `ledgr add` for interactive prompts. To create and edit an entry, set `$VISU
 or `$EDITOR` and use `--edit` (`$VISUAL` takes precedence):
 
 ```sh
-ledgr add breaking "Replace API-key authentication with OAuth" --edit
+ledgr add feature --edit
 ```
+
+Write the description directly in the editor, or pass one to prefill it. An empty
+body cancels the entry; invalid metadata or editor failures keep the draft for recovery.
 
 Add PR links with `--pr https://github.com/owner/repo/pull/42` (repeat for multiple
 PRs), or edit the `prs` list in the entry's YAML front matter.

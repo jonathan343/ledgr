@@ -191,7 +191,7 @@ Jinja2 template. Templates render one release and receive:
 Example `.ledgr/release.md.j2`:
 
 ```jinja2
-## {{ version }} — {{ date }}
+## v{{ version }} ({{ date }})
 {% for section in sections %}
 ### {{ section.heading }}
 {% for change in section.changes %}

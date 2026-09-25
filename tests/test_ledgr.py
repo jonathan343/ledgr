@@ -536,6 +536,7 @@ bump = "minor"
         ],
     }
     assert not fragment.exists() and not docs.exists()
+    assert "\n## v0.3.3 (2022-04-07)\n" in (project / "CHANGELOG.md").read_text()
     # Rendering depends on archived data, not the version file, pending changes,
     # today's date, or current type definitions.
     monkeypatch.setattr(core, "datetime", datetime)
@@ -574,7 +575,7 @@ def test_render_orders_releases_semantically_and_excludes_pending(project, capsy
     before = snapshot(project)
     assert main(["render"]) == 0
     rendered = capsys.readouterr().out
-    assert rendered.index("## 0.10.0") < rendered.index("## 0.9.0")
+    assert rendered.index("## v0.10.0 (") < rendered.index("## v0.9.0 (")
     assert "Older correction" in rendered and "New functionality" in rendered
     assert "Not released" not in rendered
     assert snapshot(project) == before
